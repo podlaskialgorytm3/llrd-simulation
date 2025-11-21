@@ -1,0 +1,242 @@
+<!doctype html>
+<html lang="pl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>LLRB Visualizer — Insert / Delete</title>
+  <style>
+    body{font-family:system-ui,-apple-system,Segoe UI,Roboto,Arial;margin:0;background:#f6f7fb;color:#222}
+    header{padding:12px 20px;background:#1f2937;color:#fff;display:flex;align-items:center;gap:12px}
+    header h1{font-size:16px;margin:0}
+    .controls{display:flex;gap:14px;padding:12px 20px;align-items:center}
+    .controls > div{display:flex;gap:6px;align-items:center}
+    input[type=text]{padding:6px 8px;border-radius:6px;border:1px solid #ccc;width:130px}
+    button{padding:7px 12px;border-radius:6px;border:0;background:#2563eb;color:#fff;cursor:pointer}
+    button.danger{background:#ef4444}
+    #canvasWrap{padding:16px}
+    svg{width:100%;height:520px;background:#fff;border-radius:8px;box-shadow:0 8px 20px rgba(0,0,0,0.08)}
+    .log{height:160px;overflow:auto;background:#0f172a;color:#fff;padding:12px;border-radius:8px;margin:12px 20px}
+    .legend{display:flex;gap:12px;align-items:center;padding:0 20px 12px}
+    .legend span{display:inline-flex;align-items:center;gap:8px}
+    .dot{width:14px;height:14px;border-radius:50%;display:inline-block}
+    a.ref{color:#0ea5e9}
+  </style>
+</head>
+<body>
+  <header>
+    <h1>LLRB (Left-Leaning Red-Black) — Visualizacji operacji Insert / Delete</h1>
+    <small style="opacity:.8">Interaktywny demonstrator</small>
+  </header>
+
+  <div class="controls">
+    <div>
+      <label>Wstaw (klucz):</label>
+      <input id="addKey" type="text" placeholder="np. A lub 42" />
+      <button id="btnAdd">Wstaw</button>
+    </div>
+    <div>
+      <label>Usuń (klucz):</label>
+      <input id="delKey" type="text" placeholder="np. O lub 17" />
+      <button id="btnDel" class="danger">Usuń</button>
+    </div>
+    <div>
+      <button id="btnClear">Wyczyść drzewo</button>
+      <button id="btnResetSample">Przykład: ALGORYTM</button>
+    </div>
+    <div style="margin-left:auto;">
+      <a class="ref" href="/mnt/data/2008LLRB.pdf" target="_blank">Sedgewick LLRB — referencja (PDF)</a>
+    </div>
+  </div>
+
+  <div id="canvasWrap">
+    <svg id="treeSvg" viewBox="0 0 1000 520" preserveAspectRatio="xMidYMid meet"></svg>
+  </div>
+
+  <div class="legend">
+    <span><i class="dot" style="background:#000"></i> BLACK</span>
+    <span><i class="dot" style="background:#b22222"></i> RED</span>
+    <span style="margin-left:12px;opacity:.85">Operacje i log (kolejność od góry do dołu):</span>
+  </div>
+
+  <div class="log" id="logArea"></div>
+
+  <script>
+  // --- LLRB implementation in JavaScript (Sedgewick-style) ---
+  class Node {
+    constructor(key, color='R'){
+      this.key = key;
+      this.left = null;
+      this.right = null;
+      this.color = color; // 'R' or 'B'
+    }
+  }
+
+  function isRed(x){ return x !== null && x.color === 'R'; }
+
+  function rotateLeft(h){
+    const x = h.right;
+    h.right = x.left;
+    x.left = h;
+    x.color = h.color;
+    h.color = 'R';
+    log('rotateLeft(' + h.key + ')');
+    return x;
+  }
+  function rotateRight(h){
+    const x = h.left;
+    h.left = x.right;
+    x.right = h;
+    x.color = h.color;
+    h.color = 'R';
+    log('rotateRight(' + h.key + ')');
+    return x;
+  }
+  function flipColors(h){
+    h.color = (h.color === 'B') ? 'R' : 'B';
+    if(h.left) h.left.color = (h.left.color === 'B') ? 'R' : 'B';
+    if(h.right) h.right.color = (h.right.color === 'B') ? 'R' : 'B';
+    log('flipColors(' + h.key + ')');
+  }
+
+  // Insert
+  function insert(h, key){
+    if(h === null){ log('insert ' + key + ' as red leaf'); return new Node(key,'R'); }
+    if(compare(key, h.key) < 0) h.left = insert(h.left, key);
+    else if(compare(key, h.key) > 0) h.right = insert(h.right, key);
+    else { log('key ' + key + ' exists (ignored)'); }
+
+    if(isRed(h.right) && !isRed(h.left)) h = rotateLeft(h);
+    if(isRed(h.left) && isRed(h.left.left)) h = rotateRight(h);
+    if(isRed(h.left) && isRed(h.right)) flipColors(h);
+    return h;
+  }
+
+  // deleteMin used by delete
+  function moveRedLeft(h){
+    // assume h is red or both children are black
+    flipColors(h);
+    if(h.right && isRed(h.right.left)){
+      h.right = rotateRight(h.right);
+      h = rotateLeft(h);
+      flipColors(h);
+    }
+    return h;
+  }
+  function moveRedRight(h){
+    flipColors(h);
+    if(h.left && isRed(h.left.left)){
+      h = rotateRight(h);
+      flipColors(h);
+    }
+    return h;
+  }
+  function fixUp(h){
+    if(isRed(h.right)) h = rotateLeft(h);
+    if(isRed(h.left) && isRed(h.left.left)) h = rotateRight(h);
+    if(isRed(h.left) && isRed(h.right)) flipColors(h);
+    return h;
+  }
+
+  function deleteMin(h){
+    if(h.left === null) return null;
+    if(!isRed(h.left) && !isRed(h.left.left)){
+      h = moveRedLeft(h);
+    }
+    h.left = deleteMin(h.left);
+    return fixUp(h);
+  }
+
+  function minNode(h){
+    while(h.left !== null) h = h.left;
+    return h;
+  }
+
+  function deleteKey(h, key){
+    if(compare(key, h.key) < 0){
+      if(h.left !== null){
+        if(!isRed(h.left) && !isRed(h.left.left)){
+          h = moveRedLeft(h);
+        }
+        h.left = deleteKey(h.left, key);
+      }
+    } else {
+      if(isRed(h.left)){
+        h = rotateRight(h);
+      }
+      if(compare(key, h.key) === 0 && h.right === null){
+        log('delete leaf ' + h.key);
+        return null;
+      }
+      if(h.right !== null){
+        if(!isRed(h.right) && !isRed(h.right.left)){
+          h = moveRedRight(h);
+        }
+        if(compare(key, h.key) === 0){
+          const m = minNode(h.right);
+          h.key = m.key;
+          log('replace ' + key + ' with successor ' + m.key);
+          h.right = deleteMin(h.right);
+        } else {
+          h.right = deleteKey(h.right, key);
+        }
+      }
+    }
+    return fixUp(h);
+  }
+
+  // Simple comparator: if numeric strings -> numeric, else string compare
+  function compare(a,b){
+    const na = Number(a), nb = Number(b);
+    if(!Number.isNaN(na) && !Number.isNaN(nb)) return na - nb;
+    return (''+a).localeCompare(''+b);
+  }
+
+  // --- UI and visualization ---
+  let root = null;
+  const svg = document.getElementById('treeSvg');
+  const logArea = document.getElementById('logArea');
+
+  function log(msg){
+    const t = new Date();
+    logArea.innerHTML = '[' + t.toLocaleTimeString() + '] ' + msg + '\n' + logArea.innerHTML;
+  }
+
+  function setRootBlack(){ if(root && root.color === 'R') root.color = 'B'; }
+
+  // compute positions using inorder + depth
+  function computePositions(){
+    const nodes = [];
+    function dfs(n, depth){ if(!n) return; dfs(n.left, depth+1); nodes.push({key:n.key,node:n,depth}); dfs(n.right, depth+1); }
+    dfs(root,0);
+    const pos = new Map();
+    nodes.forEach((item,i)=>{
+      pos.set(item.key, {x: 60 + i*80, y: 60 + item.depth*100});
+    });
+    return pos;
+  }
+
+  function redraw(){
+    while(svg.firstChild) svg.removeChild(svg.firstChild);
+    if(!root) return;
+    const pos = computePositions();
+    // draw edges
+    function drawEdges(n){ if(!n) return; const p = pos.get(n.key); if(n.left){ const c = pos.get(n.left.key); drawLine(p.x,p.y,c.x,c.y); drawEdges(n.left);} if(n.right){ const c = pos.get(n.right.key); drawLine(p.x,p.y,c.x,c.y); drawEdges(n.right);} }
+    function drawLine(x1,y1,x2,y2){ const line = document.createElementNS('http://www.w3.org/2000/svg','line'); line.setAttribute('x1',x1); line.setAttribute('y1',y1); line.setAttribute('x2',x2); line.setAttribute('y2',y2); line.setAttribute('stroke','#666'); line.setAttribute('stroke-width',2); svg.appendChild(line); }
+    function drawNodes(n){ if(!n) return; const p = pos.get(n.key); const g = document.createElementNS('http://www.w3.org/2000/svg','g'); const circle = document.createElementNS('http://www.w3.org/2000/svg','circle'); circle.setAttribute('cx',p.x); circle.setAttribute('cy',p.y); circle.setAttribute('r',20); circle.setAttribute('fill', n.color==='B' ? '#000' : '#b22222'); g.appendChild(circle); const text = document.createElementNS('http://www.w3.org/2000/svg','text'); text.setAttribute('x',p.x); text.setAttribute('y',p.y+6); text.setAttribute('text-anchor','middle'); text.setAttribute('font-size','14'); text.setAttribute('fill','#fff'); text.textContent = n.key; g.appendChild(text); svg.appendChild(g); drawNodes(n.left); drawNodes(n.right); }
+    drawEdges(root); drawNodes(root);
+  }
+
+  // Hook buttons
+  document.getElementById('btnAdd').addEventListener('click', ()=>{
+    const key = document.getElementById('addKey').value.trim(); if(!key) return; root = insert(root, key); setRootBlack(); log('Inserted ' + key); redraw(); });
+  document.getElementById('btnDel').addEventListener('click', ()=>{
+    const key = document.getElementById('delKey').value.trim(); if(!key) return; if(!root){ log('Drzewo puste'); return;} root = deleteKey(root, key); if(root) root.color='B'; log('Delete called for ' + key); redraw(); });
+  document.getElementById('btnClear').addEventListener('click', ()=>{ root=null; log('Tree cleared'); redraw(); });
+  document.getElementById('btnResetSample').addEventListener('click', ()=>{
+    root = null; const sample = 'ALGORYTM'.split(''); sample.forEach(k=> root = insert(root,k)); if(root) root.color='B'; log('Loaded sample: ALGORYTM'); redraw(); });
+
+  // initial draw
+  redraw();
+  </script>
+</body>
+</html>
